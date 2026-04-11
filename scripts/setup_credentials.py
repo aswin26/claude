@@ -43,10 +43,11 @@ def cmd_show():
         print("No credentials saved. Run setup_credentials.py to configure.")
         return
     print(f"\nSaved credentials ({CREDS_FILE}):")
-    print(f"  APPIAN_URL:     {creds.get('APPIAN_URL', '(not set)')}")
-    print(f"  APPIAN_API_KEY: {mask(creds.get('APPIAN_API_KEY', ''))}")
+    print(f"  APPIAN_URL:        {creds.get('APPIAN_URL', '(not set)')}")
+    print(f"  APPIAN_API_KEY:    {mask(creds.get('APPIAN_API_KEY', ''))}")
+    print(f"  ANTHROPIC_API_KEY: {mask(creds.get('ANTHROPIC_API_KEY', ''))}")
     if creds.get("APPIAN_APP_UUID"):
-        print(f"  APPIAN_APP_UUID: {creds['APPIAN_APP_UUID']}")
+        print(f"  APPIAN_APP_UUID:   {creds['APPIAN_APP_UUID']}")
 
 def cmd_clear():
     if os.path.isfile(CREDS_FILE):
@@ -73,19 +74,32 @@ def cmd_setup():
     uuid_prompt  = f"Default App UUID [{uuid_default}] (optional, press Enter to skip): " if uuid_default else "Default App UUID (optional, press Enter to skip): "
     app_uuid = input(uuid_prompt).strip() or uuid_default
 
+    ant_hint   = mask(existing.get("ANTHROPIC_API_KEY", ""))
+    ant_prompt = (
+        f"Anthropic API Key [{ant_hint}] (input hidden): "
+        if existing.get("ANTHROPIC_API_KEY")
+        else "Anthropic API Key — get one at console.anthropic.com (input hidden): "
+    )
+    anthropic_key = getpass.getpass(ant_prompt).strip() or existing.get("ANTHROPIC_API_KEY", "")
+
     if not url or not api_key:
-        print("\nERROR: URL and API Key are required.")
+        print("\nERROR: Appian URL and API Key are required.")
         sys.exit(1)
 
     creds = {"APPIAN_URL": url, "APPIAN_API_KEY": api_key}
+    if anthropic_key:
+        creds["ANTHROPIC_API_KEY"] = anthropic_key
     if app_uuid:
         creds["APPIAN_APP_UUID"] = app_uuid
 
     save(creds)
-    print(f"\n  URL:     {url}")
-    print(f"  API Key: {mask(api_key)}")
-    if app_uuid: print(f"  App UUID: {app_uuid}")
-    print("\nSetup complete. Run 'python scripts/appian_workflow.py --list-apps' to verify.")
+    print(f"\n  Appian URL:      {url}")
+    print(f"  Appian API Key:  {mask(api_key)}")
+    if anthropic_key: print(f"  Anthropic Key:   {mask(anthropic_key)}")
+    if app_uuid:      print(f"  App UUID:        {app_uuid}")
+    print("\nSetup complete.")
+    print("  CLI:  python scripts/appian_workflow.py --list-apps")
+    print("  Web:  cd web && uvicorn app:app --reload")
 
 def main():
     p = argparse.ArgumentParser(description="Manage Appian credentials")

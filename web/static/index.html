@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Appian Dev Studio</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+        <polyline points="2 17 12 22 22 17"/>
+        <polyline points="2 12 12 17 22 12"/>
+      </svg>
+      Appian Dev Studio
+    </div>
+    <div class="status-badge">
+      <span id="status-dot" class="dot"></span>
+      <span id="status-text">Connecting...</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- ── LEFT PANEL ── -->
+    <aside class="panel-left">
+
+      <!-- Step 1 -->
+      <div class="card" id="card-app">
+        <div class="card-title">
+          <span class="step-pill">1</span>
+          Select Application
+        </div>
+        <div class="card-body">
+          <select id="app-select" disabled>
+            <option value="">— loading apps —</option>
+          </select>
+          <div id="app-error" class="inline-error hidden"></div>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="card" id="card-req">
+        <div class="card-title">
+          <span class="step-pill">2</span>
+          Describe Requirement
+        </div>
+        <div class="card-body">
+          <textarea
+            id="requirement"
+            rows="7"
+            placeholder="Describe what you want to build or change in plain English.
+
+Example: Add email format validation to the task submission form — show an error message if the email field doesn't contain a valid address."
+          ></textarea>
+          <button id="btn-generate" class="btn btn-primary" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+            Generate with Claude
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="card" id="card-deploy">
+        <div class="card-title">
+          <span class="step-pill">3</span>
+          Review Patches &amp; Deploy
+        </div>
+        <div class="card-body">
+          <label class="field-label">Generated patches.yaml <span class="label-hint">(editable)</span></label>
+          <textarea
+            id="patches-yaml"
+            rows="12"
+            class="code-area"
+            placeholder="Patches will appear here after generation. You can edit before deploying."
+            spellcheck="false"
+          ></textarea>
+          <div class="deploy-row">
+            <input
+              id="deploy-name"
+              type="text"
+              placeholder="Deployment name"
+              value="Claude-generated deployment"
+            />
+            <button id="btn-deploy" class="btn btn-success" disabled>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/></svg>
+              Deploy
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ── RIGHT PANEL ── -->
+    <section class="panel-right">
+      <div class="log-toolbar">
+        <span class="log-title">Live Output</span>
+        <div class="log-actions">
+          <span id="job-status" class="job-badge hidden"></span>
+          <button id="btn-clear" class="btn-ghost">Clear</button>
+        </div>
+      </div>
+      <div id="log-output" class="log-output">
+        <div class="log-empty">Output will appear here when a job runs.</div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
