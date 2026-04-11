@@ -1,21 +1,40 @@
 import os
 import sys
+import json
 from dotenv import load_dotenv
 
-_ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
-load_dotenv(_ENV_PATH)
+# Credentials are loaded from ~/.appian/credentials.json (preferred, secure)
+# with fallback to scripts/.env (for CI or legacy use)
+_CREDS_FILE = os.path.expanduser("~/.appian/credentials.json")
+_ENV_PATH   = os.path.join(os.path.dirname(__file__), ".env")
 
-def _get(key, default=""): return os.getenv(key, default).strip()
-def _get_bool(key, default=False): return _get(key, str(default)).lower() in ("1","true","yes")
+def _load_credentials():
+    """Load from secure credentials file, fallback to .env."""
+    if os.path.isfile(_CREDS_FILE):
+        try:
+            with open(_CREDS_FILE) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    load_dotenv(_ENV_PATH)
+    return {}
+
+_creds = _load_credentials()
+
+def _get(key, default=""):
+    return _creds.get(key) or os.getenv(key, default) or default
+
+def _get_bool(key, default=False):
+    return str(_get(key, str(default))).strip().lower() in ("1", "true", "yes")
+
 def _get_int(key, default=0):
     try: return int(_get(key, str(default)))
     except ValueError: return default
 
-APPIAN_SOURCE_URL      = _get("APPIAN_SOURCE_URL").rstrip("/")
-APPIAN_SOURCE_API_KEY  = _get("APPIAN_SOURCE_API_KEY")
-APPIAN_TARGET_URL      = (_get("APPIAN_TARGET_URL") or APPIAN_SOURCE_URL).rstrip("/")
-APPIAN_TARGET_API_KEY  = _get("APPIAN_TARGET_API_KEY") or APPIAN_SOURCE_API_KEY
-APPIAN_APP_UUID        = _get("APPIAN_APP_UUID")
+APPIAN_URL        = _get("APPIAN_URL").rstrip("/")
+APPIAN_API_KEY    = _get("APPIAN_API_KEY")
+ANTHROPIC_API_KEY = _get("ANTHROPIC_API_KEY")
+APPIAN_APP_UUID   = _get("APPIAN_APP_UUID")
 APPIAN_DEPLOY_NAME     = _get("APPIAN_DEPLOY_NAME", "Automated Deployment")
 APPIAN_DEPLOY_DESCRIPTION = _get("APPIAN_DEPLOY_DESCRIPTION", "Deployed via appian_workflow.py")
 
@@ -35,29 +54,25 @@ WORKSPACE_DIR = os.path.join(os.path.dirname(__file__), "..", "workspace")
 EXPORT_DIR    = os.path.join(WORKSPACE_DIR, "export")
 MODIFIED_DIR  = os.path.join(WORKSPACE_DIR, "modified")
 
-def validate(require_target=True):
+def validate():
     missing = []
-    if not APPIAN_SOURCE_URL:     missing.append("APPIAN_SOURCE_URL")
-    if not APPIAN_SOURCE_API_KEY: missing.append("APPIAN_SOURCE_API_KEY")
-    if require_target:
-        if not APPIAN_TARGET_URL:     missing.append("APPIAN_TARGET_URL")
-        if not APPIAN_TARGET_API_KEY: missing.append("APPIAN_TARGET_API_KEY")
+    if not APPIAN_URL:     missing.append("APPIAN_URL")
+    if not APPIAN_API_KEY: missing.append("APPIAN_API_KEY")
     if missing:
-        print(f"\nERROR: Missing environment variables: {', '.join(missing)}")
-        print("Copy scripts/.env.example to scripts/.env and fill in your values.")
+        print(f"\nERROR: Missing credentials: {', '.join(missing)}")
+        print("Run:  python scripts/setup_credentials.py")
         sys.exit(1)
     os.makedirs(EXPORT_DIR, exist_ok=True)
     os.makedirs(MODIFIED_DIR, exist_ok=True)
 
 def print_summary():
-    def mask(v): return "****" if len(v)<=8 else v[:4]+"****"+v[-4:] if v else "(not set)"
-    print("\n--- Environment Configuration ---")
-    print(f"  Source URL:      {APPIAN_SOURCE_URL or '(not set)'}")
-    print(f"  Source API Key:  {mask(APPIAN_SOURCE_API_KEY)}")
-    print(f"  Target URL:      {APPIAN_TARGET_URL or '(not set)'}")
-    print(f"  Target API Key:  {mask(APPIAN_TARGET_API_KEY)}")
-    if APPIAN_APP_UUID: print(f"  App UUID:        {APPIAN_APP_UUID}")
-    if PROXIES:         print(f"  Proxies:         {PROXIES}")
-    print(f"  Timeout:         {REQUEST_TIMEOUT}s  |  Deploy timeout: {DEPLOY_POLL_TIMEOUT}s")
-    print(f"  Skip inspect:    {SKIP_INSPECT}  |  Auto approve: {AUTO_APPROVE}")
-    print("---------------------------------\n")
+    def mask(v): return "****" if len(v) <= 8 else v[:4] + "****" + v[-4:] if v else "(not set)"
+    source = "credentials file" if os.path.isfile(_CREDS_FILE) else ".env file"
+    print(f"\n--- Appian Environment ({source}) ---")
+    print(f"  URL:     {APPIAN_URL or '(not set)'}")
+    print(f"  API Key: {mask(APPIAN_API_KEY)}")
+    if APPIAN_APP_UUID: print(f"  App UUID: {APPIAN_APP_UUID}")
+    if PROXIES:         print(f"  Proxies:  {PROXIES}")
+    print(f"  Timeout: {REQUEST_TIMEOUT}s  |  Deploy timeout: {DEPLOY_POLL_TIMEOUT}s")
+    print(f"  Skip inspect: {SKIP_INSPECT}  |  Auto approve: {AUTO_APPROVE}")
+    print("--------------------------------------\n")

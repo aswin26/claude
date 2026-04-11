@@ -12,3 +12,6 @@ venv/
 *.swo
 .DS_Store
 Thumbs.db
+# Credentials — never commit these
+credentials.json
+~/.appian/

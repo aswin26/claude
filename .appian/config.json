@@ -11,10 +11,5 @@
     "interfaces": "rule!APP_<InterfaceName>",
     "webApis": "/api/APP/<endpointName>",
     "processModels": "APP - <Process Model Name>"
-  },
-  "environments": {
-    "dev": { "url": "https://dev.appian.com/suite" },
-    "uat": { "url": "https://uat.appian.com/suite" },
-    "prod": { "url": "https://prod.appian.com/suite" }
   }
 }
