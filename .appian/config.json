@@ -1,0 +1,20 @@
+{
+  "project": {
+    "name": "appian-development",
+    "version": "1.0.0",
+    "description": "Appian application development project",
+    "appianVersion": "24.x"
+  },
+  "conventions": {
+    "expressionRules": "rule!APP_<RuleName>",
+    "constants": "cons!APP_<ConstantName>",
+    "interfaces": "rule!APP_<InterfaceName>",
+    "webApis": "/api/APP/<endpointName>",
+    "processModels": "APP - <Process Model Name>"
+  },
+  "environments": {
+    "dev": { "url": "https://dev.appian.com/suite" },
+    "uat": { "url": "https://uat.appian.com/suite" },
+    "prod": { "url": "https://prod.appian.com/suite" }
+  }
+}
