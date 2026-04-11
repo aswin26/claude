@@ -1,0 +1,14 @@
+patches:
+  - file: "content/rules/APP_validateEmail.xml"
+    changes:
+      - find: 'isnull(emailAddress)'
+        replace: 'or(isnull(emailAddress), len(emailAddress) = 0)'
+
+  - file: "content/interfaces/APP_taskListInterface.xml"
+    changes:
+      - find: 'label: "Task Management"'
+        replace: 'label: "Project Task Tracker"'
+
+  - file: "content/constants/APP_defaultPageSize.xml"
+    xpath: ".//value"
+    new_value: "25"

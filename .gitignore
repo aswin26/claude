@@ -1,0 +1,14 @@
+scripts/.env
+.env
+workspace/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
