@@ -14,30 +14,28 @@ def main():
     deploy_name  = args.deploy_name or config.APPIAN_DEPLOY_NAME
     deploy_desc  = args.deploy_desc or config.APPIAN_DEPLOY_DESCRIPTION
 
-    require_target = not (args.list_apps or args.export_only)
-    config.validate(require_target=require_target)
+    config.validate()
     config.print_summary()
 
-    source = AppianClient(config.APPIAN_SOURCE_URL, config.APPIAN_SOURCE_API_KEY)
-    target = AppianClient(config.APPIAN_TARGET_URL, config.APPIAN_TARGET_API_KEY)
+    client = AppianClient(config.APPIAN_URL, config.APPIAN_API_KEY)
 
     if args.list_apps:
-        list_applications(source); return
+        list_applications(client); return
 
     if args.deploy_zip:
-        with open(args.deploy_zip,"rb") as f: pkg = f.read()
+        with open(args.deploy_zip, "rb") as f: pkg = f.read()
         print(f"Loaded {args.deploy_zip} ({len(pkg):,} bytes)")
         if not skip_inspect:
-            if inspect_before_deploy(target, pkg).get("status") == "FAILED":
+            if inspect_before_deploy(client, pkg).get("status") == "FAILED":
                 print("Inspection failed — aborting."); sys.exit(1)
-        sys.exit(0 if deploy(target, pkg, deploy_name, deploy_desc).get("status")=="COMPLETED" else 1)
+        sys.exit(0 if deploy(client, pkg, deploy_name, deploy_desc).get("status") == "COMPLETED" else 1)
 
     if not app_uuid:
-        print("ERROR: --app-uuid required (or set APPIAN_APP_UUID in .env).")
+        print("ERROR: --app-uuid required (or set APPIAN_APP_UUID via setup_credentials.py).")
         print("Use --list-apps to find UUIDs."); sys.exit(1)
 
     print("="*60+"\nSTEP 1: EXPORT\n"+"="*60)
-    extract_dir = export_application(source, app_uuid)
+    extract_dir = export_application(client, app_uuid)
     list_extracted_objects(extract_dir)
     if args.export_only:
         print(f"\nExport complete: {extract_dir}"); return
@@ -54,15 +52,15 @@ def main():
 
     if not skip_inspect:
         print("\n"+"="*60+"\nSTEP 4: INSPECT\n"+"="*60)
-        if inspect_before_deploy(target, pkg).get("status") == "FAILED":
+        if inspect_before_deploy(client, pkg).get("status") == "FAILED":
             print("Inspection failed — aborting."); sys.exit(1)
 
-    print("\n"+"="*60+f"\nSTEP 5: DEPLOY → {config.APPIAN_TARGET_URL}\n"+"="*60)
+    print("\n"+"="*60+f"\nSTEP 5: DEPLOY → {config.APPIAN_URL}\n"+"="*60)
     if not auto_approve:
         if input("\nProceed with deployment? [y/N] ").lower() != "y":
             print("Cancelled."); return
 
-    result = deploy(target, pkg, deploy_name, deploy_desc)
+    result = deploy(client, pkg, deploy_name, deploy_desc)
     ok = result.get("status") == "COMPLETED"
     print("\n"+"="*60)
     print("WORKFLOW COMPLETE — successful." if ok else "WORKFLOW FAILED.")
@@ -70,16 +68,16 @@ def main():
     sys.exit(0 if ok else 1)
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Appian Export → Modify → Deploy")
-    p.add_argument("--app-uuid")
-    p.add_argument("--patches")
-    p.add_argument("--list-apps",    action="store_true")
-    p.add_argument("--export-only",  action="store_true")
-    p.add_argument("--deploy-zip")
-    p.add_argument("--skip-inspect", action="store_true")
-    p.add_argument("--auto-approve", action="store_true")
-    p.add_argument("--deploy-name",  default="")
-    p.add_argument("--deploy-desc",  default="")
+    p = argparse.ArgumentParser(description="Appian Export → Modify → Deploy (same environment)")
+    p.add_argument("--app-uuid",      help="Application UUID to export")
+    p.add_argument("--patches",       help="Path to patches YAML file")
+    p.add_argument("--list-apps",     action="store_true", help="List all applications")
+    p.add_argument("--export-only",   action="store_true", help="Export without deploying")
+    p.add_argument("--deploy-zip",    help="Deploy a pre-built zip directly")
+    p.add_argument("--skip-inspect",  action="store_true", help="Skip pre-deploy inspection")
+    p.add_argument("--auto-approve",  action="store_true", help="Deploy without confirmation prompt")
+    p.add_argument("--deploy-name",   default="", help="Deployment name")
+    p.add_argument("--deploy-desc",   default="", help="Deployment description")
     return p.parse_args()
 
 if __name__ == "__main__":
