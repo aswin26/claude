@@ -215,7 +215,7 @@ def _bg_generate(job_id: str, app_uuid: str, requirement: str, loop: asyncio.Abs
 
         # STEP 3 — Generate patches template
         _log(q, loop, "\n── STEP 3: Generating patches template ────────────────")
-        file_list = "\n".join(f"  - {p}" for p in file_contents)
+        file_list = "\n".join(f"#   - {p}" for p in file_contents)
         patches_yaml = (
             f"# Requirement: {requirement}\n"
             f"#\n"
