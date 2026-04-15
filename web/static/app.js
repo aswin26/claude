@@ -249,7 +249,7 @@ btnDeploy.addEventListener("click", async () => {
     await loadApps();
   } else {
     logLine("Credentials not configured.", "warn");
-    logLine("Run:  python scripts/setup_credentials.py", "muted");
-    logLine("Then refresh this page.", "muted");
+    logLine("Edit scripts/.env with your APPIAN_DOMAIN and APPIAN_API_KEY.", "muted");
+    logLine("Then restart the server and refresh this page.", "muted");
   }
 })();
