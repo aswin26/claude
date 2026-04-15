@@ -73,10 +73,13 @@ def _finish(q, loop):
 
 # ---- Config reload ----
 def _reload_config():
-    """Re-read credentials file so changes via setup_credentials.py take effect."""
-    config._creds = config._load_credentials()
-    config.APPIAN_URL = config._get("APPIAN_URL").rstrip("/")
-    config.APPIAN_API_KEY = config._get("APPIAN_API_KEY")
+    """Re-read scripts/.env so changes take effect without restarting."""
+    from dotenv import load_dotenv
+    env_path = Path(__file__).parent.parent / "scripts" / ".env"
+    load_dotenv(env_path, override=True)
+    domain = os.getenv("APPIAN_DOMAIN", "")
+    config.APPIAN_URL     = f"https://{domain}" if domain else ""
+    config.APPIAN_API_KEY = os.getenv("APPIAN_API_KEY", "")
 
 
 # ---- Pydantic models ----
@@ -111,7 +114,7 @@ def api_status():
 def api_list_apps():
     _reload_config()
     if not (config.APPIAN_URL and config.APPIAN_API_KEY):
-        raise HTTPException(400, "Appian credentials not configured. Run: python scripts/setup_credentials.py")
+        raise HTTPException(400, "Appian credentials not configured. Edit scripts/.env and restart the server.")
     try:
         client = AppianClient(config.APPIAN_URL, config.APPIAN_API_KEY)
         apps = client.list_applications()
