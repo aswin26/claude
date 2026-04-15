@@ -30,12 +30,14 @@
       <div class="card" id="card-app">
         <div class="card-title">
           <span class="step-pill">1</span>
-          Select Application
+          Application UUID
         </div>
         <div class="card-body">
-          <select id="app-select" disabled>
-            <option value="">— loading apps —</option>
-          </select>
+          <input
+            id="app-uuid-input"
+            type="text"
+            placeholder="Paste application UUID here (or set APPIAN_APP_UUID in .env)"
+          />
           <div id="app-error" class="inline-error hidden"></div>
         </div>
       </div>
