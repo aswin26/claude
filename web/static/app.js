@@ -58,17 +58,13 @@ async function checkStatus() {
     const r = await fetch("/api/status");
     const s = await r.json();
 
-    const allOk = s.appian_ok && s.anthropic_ok;
-    statusDot.className = "dot " + (allOk ? "ok" : s.appian_ok ? "warn" : "err");
+    statusDot.className = "dot " + (s.appian_ok ? "ok" : "err");
 
-    if (allOk) {
+    if (s.appian_ok) {
       const host = s.url ? new URL(s.url).hostname : "configured";
       statusText.textContent = `Ready — ${host}`;
     } else {
-      const missing = [];
-      if (!s.appian_ok)    missing.push("Appian credentials");
-      if (!s.anthropic_ok) missing.push("Anthropic API key");
-      statusText.textContent = `Not configured: ${missing.join(", ")}`;
+      statusText.textContent = "Not configured: Appian credentials";
     }
 
     return s;
@@ -169,7 +165,7 @@ btnGenerate.addEventListener("click", async () => {
       btnGenerate.disabled = false;
       btnGenerate.innerHTML =
         '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>'
-        + " Generate with Claude";
+        + " Inspect & Generate Template";
 
       if (error) {
         setBadge("failed", "✗ Failed");
@@ -191,7 +187,7 @@ btnGenerate.addEventListener("click", async () => {
     btnGenerate.disabled = false;
     btnGenerate.innerHTML =
       '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>'
-      + " Generate with Claude";
+      + " Inspect & Generate Template";
   }
 });
 
