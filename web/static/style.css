@@ -82,13 +82,13 @@ header {
 main {
   display: grid;
   grid-template-columns: 400px 1fr;
-  flex: 1;
+  height: calc(100vh - 52px);
   overflow: hidden;
-  min-height: 0;
 }
 
 /* ── Left panel ── */
 .panel-left {
+  height: 100%;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -96,11 +96,10 @@ main {
   overflow-y: auto;
   border-right: 1px solid var(--border);
   background: var(--bg);
-  min-height: 0;   /* allow grid child to scroll */
 }
 
 .panel-right {
-  min-height: 0;   /* allow grid child to scroll */
+  height: 100%;
 }
 
 /* ── Cards ── */
@@ -177,6 +176,9 @@ textarea.code-area {
   font-size: 12px;
   line-height: 1.6;
 }
+
+#requirement  { height: max(80px,  12vh); min-height: 60px;  }
+#patches-yaml { height: max(160px, 22vh); min-height: 100px; }
 
 /* ── Buttons ── */
 .btn {
