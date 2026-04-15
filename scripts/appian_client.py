@@ -122,13 +122,21 @@ class AppianClient:
     def _get(self, url, **kw):
         kw.setdefault("timeout", config.REQUEST_TIMEOUT)
         r = self.session.get(url, **kw)
-        r.raise_for_status()
+        if not r.ok:
+            raise requests.HTTPError(
+                f"{r.status_code} {r.reason} for url: {r.url}\nResponse body: {r.text[:1000]}",
+                response=r,
+            )
         return r
 
     def _post(self, url, **kw):
         kw.setdefault("timeout", config.REQUEST_TIMEOUT)
         r = self.session.post(url, **kw)
-        r.raise_for_status()
+        if not r.ok:
+            raise requests.HTTPError(
+                f"{r.status_code} {r.reason} for url: {r.url}\nResponse body: {r.text[:1000]}",
+                response=r,
+            )
         return r
 
     def _poll_status(self, url, terminal):
