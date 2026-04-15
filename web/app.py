@@ -16,7 +16,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 import yaml
-import anthropic
 
 # ---- Path setup ----
 SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
@@ -78,7 +77,6 @@ def _reload_config():
     config._creds = config._load_credentials()
     config.APPIAN_URL = config._get("APPIAN_URL").rstrip("/")
     config.APPIAN_API_KEY = config._get("APPIAN_API_KEY")
-    config.ANTHROPIC_API_KEY = config._get("ANTHROPIC_API_KEY")
 
 
 # ---- Pydantic models ----
@@ -103,11 +101,9 @@ def index():
 @app.get("/api/status")
 def api_status():
     _reload_config()
-    ant_key = config._get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY", "")
     return {
-        "appian_ok":    bool(config.APPIAN_URL and config.APPIAN_API_KEY),
-        "anthropic_ok": bool(ant_key),
-        "url":          config.APPIAN_URL or "",
+        "appian_ok": bool(config.APPIAN_URL and config.APPIAN_API_KEY),
+        "url":       config.APPIAN_URL or "",
     }
 
 
@@ -226,58 +222,28 @@ def _bg_generate(job_id: str, app_uuid: str, requirement: str, loop: asyncio.Abs
             files_ctx += entry
             total += len(entry)
 
-        # STEP 3 — Claude
-        _log(q, loop, "\n── STEP 3: Generating modifications with Claude ───────")
-        ant_key = config._get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY", "")
-        if not ant_key:
-            raise RuntimeError(
-                "ANTHROPIC_API_KEY not configured.\n"
-                "Run: python scripts/setup_credentials.py"
-            )
-
-        ai = anthropic.Anthropic(api_key=ant_key)
-        _log(q, loop, "  Calling Claude API...")
-
-        response = ai.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=4096,
-            system=(
-                "You are an expert Appian developer.\n"
-                "Given exported Appian XML/SAIL files and a requirement, produce a patches.yaml "
-                "that implements the requirement using text replacements or XPath patches.\n\n"
-                "patches.yaml format:\n"
-                "patches:\n"
-                "  - file: \"path/to/file.xml\"   # path relative to extracted package root\n"
-                "    changes:\n"
-                "      - find: \"exact text to find\"\n"
-                "        replace: \"replacement text\"\n"
-                "  - file: \"path/to/file.xml\"\n"
-                "    xpath: \".//elementName\"\n"
-                "    new_value: \"new value\"\n\n"
-                "Rules:\n"
-                "- Use exact strings from the file for 'find' values\n"
-                "- Only reference files that exist in the export\n"
-                "- Return ONLY valid YAML — no markdown fences, no explanation"
-            ),
-            messages=[{
-                "role":    "user",
-                "content": (
-                    f"Exported Appian files:\n{files_ctx}\n\n"
-                    f"Requirement: {requirement}\n\n"
-                    "Generate patches.yaml:"
-                ),
-            }],
+        # STEP 3 — Generate patches template
+        _log(q, loop, "\n── STEP 3: Generating patches template ────────────────")
+        file_list = "\n".join(f"  - {p}" for p in file_contents)
+        patches_yaml = (
+            f"# Requirement: {requirement}\n"
+            f"#\n"
+            f"# Exported files:\n"
+            f"{file_list}\n"
+            f"#\n"
+            f"# Edit the patches below. Each patch targets one file.\n"
+            f"# Use 'changes' for text replacement or 'xpath' for element value.\n"
+            f"\n"
+            f"patches:\n"
+            f"  - file: \"path/to/file.xml\"\n"
+            f"    changes:\n"
+            f"      - find: \"exact text to find\"\n"
+            f"        replace: \"replacement text\"\n"
+            f"  # - file: \"path/to/file.xml\"\n"
+            f"  #   xpath: \".//elementName\"\n"
+            f"  #   new_value: \"new value\"\n"
         )
-
-        patches_yaml = response.content[0].text.strip()
-        # Strip accidental markdown fences
-        if patches_yaml.startswith("```"):
-            lines = patches_yaml.splitlines()
-            patches_yaml = "\n".join(lines[1:] if lines[0].startswith("```") else lines)
-        if patches_yaml.endswith("```"):
-            patches_yaml = patches_yaml[: patches_yaml.rfind("```")].strip()
-
-        _log(q, loop, "  Done ✓")
+        _log(q, loop, "  Template ready — edit patches before deploying ✓")
 
         job["result"] = {
             "patches_yaml": patches_yaml,

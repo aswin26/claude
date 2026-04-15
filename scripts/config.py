@@ -31,10 +31,9 @@ def _get_int(key, default=0):
     try: return int(_get(key, str(default)))
     except ValueError: return default
 
-APPIAN_URL        = _get("APPIAN_URL").rstrip("/")
-APPIAN_API_KEY    = _get("APPIAN_API_KEY")
-ANTHROPIC_API_KEY = _get("ANTHROPIC_API_KEY")
-APPIAN_APP_UUID   = _get("APPIAN_APP_UUID")
+APPIAN_URL     = _get("APPIAN_URL").rstrip("/")
+APPIAN_API_KEY = _get("APPIAN_API_KEY")
+APPIAN_APP_UUID = _get("APPIAN_APP_UUID")
 APPIAN_DEPLOY_NAME     = _get("APPIAN_DEPLOY_NAME", "Automated Deployment")
 APPIAN_DEPLOY_DESCRIPTION = _get("APPIAN_DEPLOY_DESCRIPTION", "Deployed via appian_workflow.py")
 
