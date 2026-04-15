@@ -11,10 +11,10 @@ class AppianClient:
             self.session.proxies.update(config.PROXIES)
 
     def list_applications(self):
-        return self._get(f"{self.base_url}/suite/api/v1/applications").json()
+        return self._get(f"{self.base_url}/suite/api/v2/applications").json()
 
     def export_package(self, app_uuid):
-        url = f"{self.base_url}/suite/api/v1/applications/{app_uuid}/export"
+        url = f"{self.base_url}/suite/api/v2/applications/{app_uuid}/export"
         resp = self._post(url, json={})
         if resp.headers.get("Content-Type","").startswith("application/zip"):
             return resp.content
