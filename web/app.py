@@ -113,13 +113,16 @@ def api_status():
 @app.get("/api/apps")
 def api_list_apps():
     _reload_config()
+    print(f"[api/apps] URL={config.APPIAN_URL!r} key_set={bool(config.APPIAN_API_KEY)}")
     if not (config.APPIAN_URL and config.APPIAN_API_KEY):
         raise HTTPException(400, "Appian credentials not configured. Edit scripts/.env and restart the server.")
     try:
         client = AppianClient(config.APPIAN_URL, config.APPIAN_API_KEY)
         apps = client.list_applications()
+        print(f"[api/apps] response={apps}")
         return {"apps": apps}
     except Exception as e:
+        print(f"[api/apps] ERROR: {e}")
         raise HTTPException(502, f"Could not connect to Appian: {e}")
 
 
