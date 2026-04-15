@@ -1,77 +1,143 @@
-import time
-import requests
+import os, time, json, requests
+from requests_toolbelt import MultipartEncoder
 import config
+
 
 class AppianClient:
     def __init__(self, base_url, api_key):
-        self.base_url = base_url
-        self.session = requests.Session()
-        self.session.headers.update({"Appian-API-Key": api_key, "Accept": "application/json"})
+        self.base_url    = base_url.rstrip("/")
+        self.base_deploy = f"{self.base_url}/suite/deployment-management/v2"
+        self.session     = requests.Session()
+        self.session.headers.update({"appian-api-key": api_key})
         if config.PROXIES:
             self.session.proxies.update(config.PROXIES)
+
+    # ── Applications ──────────────────────────────────────────────
 
     def list_applications(self):
         return self._get(f"{self.base_url}/suite/api/v2/applications").json()
 
-    def export_package(self, app_uuid):
-        url = f"{self.base_url}/suite/api/v2/applications/{app_uuid}/export"
-        resp = self._post(url, json={})
-        if resp.headers.get("Content-Type","").startswith("application/zip"):
-            return resp.content
-        body = resp.json()
-        dl_url = body.get("downloadUrl") or body.get("url")
-        if dl_url:
-            return self._get(dl_url, stream=True).content
-        raise RuntimeError(f"Unexpected export response: {resp.text[:500]}")
+    # ── Export ────────────────────────────────────────────────────
 
-    def inspect_package(self, package_bytes):
-        url = f"{self.base_url}/suite/deployment-management/v2/inspections"
-        resp = self._post_file(url, "package.zip", package_bytes)
-        result = resp.json()
-        uuid = result.get("uuid")
-        if uuid:
-            result = self._poll_status(f"{url}/{uuid}", {"COMPLETED","FAILED"})
-        return result
-
-    def deploy_package(self, package_bytes, name="Automated Deployment", description=""):
-        url = f"{self.base_url}/suite/deployment-management/v2/deployments"
-        resp = self.session.post(
+    def export_package(self, app_uuid: str) -> bytes:
+        """Trigger export, poll until complete, return zip bytes."""
+        url = f"{self.base_deploy}/deployments"
+        payload = {
+            "exportType":  "application",
+            "uuids":       [app_uuid],
+            "name":        f"Export-{app_uuid[:8]}",
+            "description": "Exported via appian_workflow.py",
+        }
+        multipart = MultipartEncoder(fields={
+            "json": (None, json.dumps(payload), "application/json"),
+        })
+        resp = self._post(
             url,
-            files={"zipFile": ("package.zip", package_bytes, "application/zip")},
-            data={"json": f'{{"name":"{name}","description":"{description}","dataSource":"ADMIN"}}'},
-            timeout=config.REQUEST_TIMEOUT,
+            headers={"Action-Type": "export", "Content-Type": multipart.content_type},
+            data=multipart,
         )
-        resp.raise_for_status()
+        result       = resp.json()
+        deploy_uuid  = result.get("uuid")
+        print(f"  Export triggered — deployment UUID: {deploy_uuid}")
+
+        result = self._poll_status(
+            f"{self.base_deploy}/deployments/{deploy_uuid}",
+            {"COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED"},
+        )
+        if result.get("status") == "FAILED":
+            raise RuntimeError(f"Export failed: {json.dumps(result)}")
+
+        # Get download URL from completed deployment
+        meta         = self._get(f"{self.base_deploy}/deployments/{deploy_uuid}").json()
+        download_url = meta.get("packageZip") or meta.get("url")
+        if not download_url:
+            raise RuntimeError(f"No download URL in export response: {json.dumps(meta)}")
+
+        with self.session.get(download_url, stream=True, timeout=120) as r:
+            r.raise_for_status()
+            return r.content
+
+    # ── Inspect ───────────────────────────────────────────────────
+
+    def inspect_package(self, zip_path: str) -> dict:
+        """Inspect a .zip package file. Returns inspection result dict."""
+        url          = f"{self.base_deploy}/inspections"
+        package_name = os.path.basename(zip_path)
+        payload      = {"packageFileName": package_name}
+
+        with open(zip_path, "rb") as zf:
+            multipart = MultipartEncoder(fields={
+                "json":    json.dumps(payload),
+                "package": (package_name, zf, "application/zip"),
+            })
+            resp = self._post(
+                url,
+                headers={"Content-Type": multipart.content_type},
+                data=multipart,
+            )
+
         result = resp.json()
-        uuid = result.get("uuid")
+        uuid   = result.get("uuid")
         if uuid:
-            result = self._poll_status(f"{url}/{uuid}", {"COMPLETED","FAILED"})
+            result = self._poll_status(
+                f"{url}/{uuid}",
+                {"COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED"},
+            )
         return result
 
-    def get_deployment_status(self, uuid):
-        return self._get(f"{self.base_url}/suite/deployment-management/v2/deployments/{uuid}").json()
+    # ── Deploy ────────────────────────────────────────────────────
 
-    def get_deployment_log(self, uuid):
-        return self._get(f"{self.base_url}/suite/deployment-management/v2/deployments/{uuid}/log").json()
+    def deploy_package(self, zip_path: str, name="Automated Deployment", description="") -> dict:
+        """Deploy a .zip package file. Returns deployment result dict."""
+        url          = f"{self.base_deploy}/deployments"
+        package_name = os.path.basename(zip_path)
+        payload      = {
+            "name":            name,
+            "description":     description,
+            "packageFileName": package_name,
+        }
+
+        with open(zip_path, "rb") as zf:
+            multipart = MultipartEncoder(fields={
+                "json":    json.dumps(payload),
+                "package": (package_name, zf, "application/zip"),
+            })
+            resp = self._post(
+                url,
+                headers={"Action-Type": "import", "Content-Type": multipart.content_type},
+                data=multipart,
+            )
+
+        result = resp.json()
+        uuid   = result.get("uuid")
+        if uuid:
+            result = self._poll_status(
+                f"{url}/{uuid}",
+                {"COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED"},
+            )
+        return result
+
+    # ── Internal helpers ──────────────────────────────────────────
 
     def _get(self, url, **kw):
         kw.setdefault("timeout", config.REQUEST_TIMEOUT)
-        r = self.session.get(url, **kw); r.raise_for_status(); return r
+        r = self.session.get(url, **kw)
+        r.raise_for_status()
+        return r
 
     def _post(self, url, **kw):
         kw.setdefault("timeout", config.REQUEST_TIMEOUT)
-        r = self.session.post(url, **kw); r.raise_for_status(); return r
-
-    def _post_file(self, url, filename, data):
-        r = self.session.post(url, files={"zipFile":(filename,data,"application/zip")}, timeout=config.REQUEST_TIMEOUT)
-        r.raise_for_status(); return r
+        r = self.session.post(url, **kw)
+        r.raise_for_status()
+        return r
 
     def _poll_status(self, url, terminal):
         deadline = time.time() + config.DEPLOY_POLL_TIMEOUT
         while time.time() < deadline:
-            body = self._get(url).json()
-            status = body.get("status","UNKNOWN")
+            body   = self._get(url).json()
+            status = body.get("status", "UNKNOWN")
             print(f"  ... status: {status}")
-            if status in terminal: return body
+            if status in terminal:
+                return body
             time.sleep(config.DEPLOY_POLL_INTERVAL)
         raise TimeoutError(f"Timed out after {config.DEPLOY_POLL_TIMEOUT}s")
