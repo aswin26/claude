@@ -96,6 +96,11 @@ main {
   overflow-y: auto;
   border-right: 1px solid var(--border);
   background: var(--bg);
+  min-height: 0;   /* allow grid child to scroll */
+}
+
+.panel-right {
+  min-height: 0;   /* allow grid child to scroll */
 }
 
 /* ── Cards ── */
