@@ -21,6 +21,9 @@ APPIAN_URL    = f"https://{APPIAN_DOMAIN}" if APPIAN_DOMAIN else ""
 APPIAN_API_KEY  = _get("APPIAN_API_KEY")
 APPIAN_APP_UUID = _get("APPIAN_APP_UUID")
 
+# Anthropic — required for the multi-agent workflow
+ANTHROPIC_API_KEY = _get("ANTHROPIC_API_KEY")
+
 APPIAN_DEPLOY_NAME        = _get("APPIAN_DEPLOY_NAME", "Automated Deployment")
 APPIAN_DEPLOY_DESCRIPTION = _get("APPIAN_DEPLOY_DESCRIPTION", "Deployed via appian_workflow.py")
 

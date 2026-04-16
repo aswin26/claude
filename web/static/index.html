@@ -16,9 +16,17 @@
       </svg>
       Appian Dev Studio
     </div>
-    <div class="status-badge">
-      <span id="status-dot" class="dot"></span>
-      <span id="status-text">Connecting...</span>
+    <div class="header-right">
+      <div id="badge-appian" class="conn-badge">
+        <span class="dot" id="dot-appian"></span>
+        <span id="text-appian">Appian…</span>
+      </div>
+      <div id="badge-claude" class="conn-badge">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+        </svg>
+        <span id="text-claude">Claude…</span>
+      </div>
     </div>
   </header>
 
@@ -26,67 +34,79 @@
     <!-- ── LEFT PANEL ── -->
     <aside class="panel-left">
 
-      <!-- Step 1 -->
-      <div class="card" id="card-app">
+      <!-- Application (optional) -->
+      <div class="card">
         <div class="card-title">
           <span class="step-pill">1</span>
-          Select Application
+          Application <span class="optional-hint">(optional)</span>
         </div>
         <div class="card-body">
-          <select id="app-select" disabled>
-            <option value="">— loading apps —</option>
+          <select id="app-select">
+            <option value="">— no Appian connection —</option>
           </select>
           <div id="app-error" class="inline-error hidden"></div>
+          <p class="hint-text">Select an app to give the Developer agent context about existing objects. Leave blank to work from scratch.</p>
         </div>
       </div>
 
-      <!-- Step 2 -->
-      <div class="card" id="card-req">
+      <!-- Requirement -->
+      <div class="card">
         <div class="card-title">
           <span class="step-pill">2</span>
-          Describe Requirement
+          Requirement
         </div>
         <div class="card-body">
           <textarea
             id="requirement"
-            rows="7"
+            rows="9"
             placeholder="Describe what you want to build or change in plain English.
 
-Example: Add email format validation to the task submission form — show an error message if the email field doesn't contain a valid address."
+Example: Add a task submission form that captures employee name, department, and task description. Validate that the task description is at least 20 characters. On submission, start the APP - Task Review process and send a confirmation email to the employee."
           ></textarea>
-          <button id="btn-generate" class="btn btn-primary" disabled>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
-            Generate with Claude
+          <button id="btn-run" class="btn btn-primary" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+            </svg>
+            Run AI Workflow
           </button>
         </div>
       </div>
 
-      <!-- Step 3 -->
-      <div class="card" id="card-deploy">
-        <div class="card-title">
-          <span class="step-pill">3</span>
-          Review Patches &amp; Deploy
-        </div>
-        <div class="card-body">
-          <label class="field-label">Generated patches.yaml <span class="label-hint">(editable)</span></label>
-          <textarea
-            id="patches-yaml"
-            rows="12"
-            class="code-area"
-            placeholder="Patches will appear here after generation. You can edit before deploying."
-            spellcheck="false"
-          ></textarea>
-          <div class="deploy-row">
-            <input
-              id="deploy-name"
-              type="text"
-              placeholder="Deployment name"
-              value="Claude-generated deployment"
-            />
-            <button id="btn-deploy" class="btn btn-success" disabled>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/></svg>
-              Deploy
-            </button>
+      <!-- Agent pipeline legend -->
+      <div class="card pipeline-legend">
+        <div class="card-title">AI Agent Pipeline</div>
+        <div class="pipeline-steps">
+          <div class="pipe-step">
+            <span class="pipe-icon designer">A</span>
+            <div>
+              <div class="pipe-name">Designer Agent</div>
+              <div class="pipe-role">Appian Solution Architect</div>
+            </div>
+          </div>
+          <div class="pipe-arrow">↓</div>
+          <div class="pipe-step">
+            <span class="pipe-icon developer">D</span>
+            <div>
+              <div class="pipe-name">Developer Agent</div>
+              <div class="pipe-role">Senior Appian Developer</div>
+            </div>
+          </div>
+          <div class="pipe-arrow">↓</div>
+          <div class="pipe-step">
+            <span class="pipe-icon verify">A</span>
+            <div>
+              <div class="pipe-name">Design Verification</div>
+              <div class="pipe-role">Architect reviews output</div>
+            </div>
+          </div>
+          <div class="pipe-arrow">↓</div>
+          <div class="pipe-step">
+            <span class="pipe-icon tester">T</span>
+            <div>
+              <div class="pipe-name">Unit Testing</div>
+              <div class="pipe-role">QA Engineer validates</div>
+            </div>
           </div>
         </div>
       </div>
@@ -95,16 +115,156 @@ Example: Add email format validation to the task submission form — show an err
 
     <!-- ── RIGHT PANEL ── -->
     <section class="panel-right">
-      <div class="log-toolbar">
-        <span class="log-title">Live Output</span>
-        <div class="log-actions">
-          <span id="job-status" class="job-badge hidden"></span>
-          <button id="btn-clear" class="btn-ghost">Clear</button>
+
+      <!-- Tab bar -->
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="workflow">Workflow</button>
+        <button class="tab-btn" data-tab="objects" id="tab-objects" disabled>
+          Objects
+          <span id="objects-count" class="tab-badge hidden">0</span>
+        </button>
+        <div class="tab-spacer"></div>
+        <span id="job-status" class="job-badge hidden"></span>
+        <button id="btn-clear" class="btn-ghost">Clear</button>
+      </div>
+
+      <!-- ── Workflow tab ── -->
+      <div id="tab-panel-workflow" class="tab-panel active">
+
+        <!-- Agent stage cards (hidden until workflow runs) -->
+        <div id="stages" class="stages hidden">
+
+          <div class="stage-card" id="stage-designer">
+            <div class="stage-header">
+              <span class="agent-avatar designer">A</span>
+              <div class="stage-meta">
+                <span class="stage-label">Designer Agent</span>
+                <span class="stage-role">Appian Solution Architect</span>
+              </div>
+              <span class="stage-status-icon" id="icon-designer"></span>
+            </div>
+            <div class="stage-body" id="body-designer">
+              <div class="stage-thinking">Waiting to start…</div>
+            </div>
+          </div>
+
+          <div class="stage-connector"></div>
+
+          <div class="stage-card" id="stage-developer">
+            <div class="stage-header">
+              <span class="agent-avatar developer">D</span>
+              <div class="stage-meta">
+                <span class="stage-label">Developer Agent</span>
+                <span class="stage-role">Senior Appian Developer</span>
+              </div>
+              <span class="stage-status-icon" id="icon-developer"></span>
+            </div>
+            <div class="stage-body" id="body-developer">
+              <div class="stage-thinking">Waiting…</div>
+            </div>
+          </div>
+
+          <div class="stage-connector"></div>
+
+          <div class="stage-card" id="stage-designer_verify">
+            <div class="stage-header">
+              <span class="agent-avatar verify">A</span>
+              <div class="stage-meta">
+                <span class="stage-label">Design Verification</span>
+                <span class="stage-role">Architect reviews implementation</span>
+              </div>
+              <span class="stage-status-icon" id="icon-designer_verify"></span>
+            </div>
+            <div class="stage-body" id="body-designer_verify">
+              <div class="stage-thinking">Waiting…</div>
+            </div>
+          </div>
+
+          <div class="stage-connector"></div>
+
+          <div class="stage-card" id="stage-tester">
+            <div class="stage-header">
+              <span class="agent-avatar tester">T</span>
+              <div class="stage-meta">
+                <span class="stage-label">Unit Testing</span>
+                <span class="stage-role">QA Engineer validates objects</span>
+              </div>
+              <span class="stage-status-icon" id="icon-tester"></span>
+            </div>
+            <div class="stage-body" id="body-tester">
+              <div class="stage-thinking">Waiting…</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Live log -->
+        <div class="log-section">
+          <div class="log-label">Live Log</div>
+          <div id="log-output" class="log-output">
+            <div class="log-empty">Start the workflow to see live output.</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ── Objects tab ── -->
+      <div id="tab-panel-objects" class="tab-panel">
+
+        <div id="objects-empty" class="objects-empty">
+          Run the workflow first to see generated objects here.
+        </div>
+
+        <div id="objects-panel" class="hidden">
+
+          <div id="new-objects-section" class="hidden">
+            <div class="objects-section-title">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              New Objects
+              <span id="new-objects-count" class="obj-count new"></span>
+            </div>
+            <div id="new-objects-list" class="objects-list"></div>
+          </div>
+
+          <div id="modified-objects-section" class="hidden">
+            <div class="objects-section-title">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              Modified Objects
+              <span id="modified-objects-count" class="obj-count modified"></span>
+            </div>
+            <div id="modified-objects-list" class="objects-list"></div>
+          </div>
+
+          <!-- Test summary -->
+          <div id="test-summary-bar" class="test-summary-bar hidden">
+            <div class="test-summary-inner">
+              <span id="test-passed" class="ts-pass"></span>
+              <span id="test-failed" class="ts-fail"></span>
+              <span id="test-warn" class="ts-warn"></span>
+            </div>
+            <span id="deploy-readiness" class="deploy-badge"></span>
+          </div>
+
+          <!-- Deploy button -->
+          <div class="deploy-strip" id="deploy-strip">
+            <div class="deploy-name-row">
+              <input id="deploy-name" type="text" placeholder="Deployment name"
+                     value="AI-generated deployment" />
+            </div>
+            <button id="btn-deploy" class="btn btn-success" disabled>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/>
+              </svg>
+              Deploy Objects
+            </button>
+            <div id="no-appian-note" class="no-appian-note hidden">
+              Configure Appian credentials in scripts/.env to enable deployment.
+            </div>
+          </div>
+
         </div>
       </div>
-      <div id="log-output" class="log-output">
-        <div class="log-empty">Output will appear here when a job runs.</div>
-      </div>
+
     </section>
   </main>
 
