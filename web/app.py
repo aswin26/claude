@@ -7,7 +7,7 @@ Run:
 
 Then open http://localhost:8000
 """
-import sys, os, json, uuid, asyncio, threading, traceback, io
+import sys, os, json, uuid, asyncio, threading, traceback, io, zipfile, tempfile
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 
@@ -26,6 +26,7 @@ from appian_client import AppianClient
 from exporter import export_application
 from modifier import apply_patches
 from deployer import package_modified, inspect_before_deploy, deploy as do_deploy
+from agents import MultiAgentOrchestrator
 
 # ---- App ----
 app = FastAPI(title="Appian Dev Studio")
@@ -50,21 +51,25 @@ class _LogCapture(io.RawIOBase):
         while "\n" in self._buf:
             line, self._buf = self._buf.split("\n", 1)
             if line.strip():
-                asyncio.run_coroutine_threadsafe(self._q.put(line), self._loop)
+                asyncio.run_coroutine_threadsafe(self._q.put(("log", line)), self._loop)
         return len(s)
 
     def flush(self):
         if self._buf.strip():
-            asyncio.run_coroutine_threadsafe(self._q.put(self._buf), self._loop)
+            asyncio.run_coroutine_threadsafe(self._q.put(("log", self._buf)), self._loop)
             self._buf = ""
 
-    # Make it usable as a text stream wrapper
     def readable(self): return False
     def writable(self): return True
 
 
 def _log(q, loop, msg):
-    asyncio.run_coroutine_threadsafe(q.put(msg), loop)
+    asyncio.run_coroutine_threadsafe(q.put(("log", msg)), loop)
+
+
+def _event(q, loop, payload: dict):
+    """Emit a structured workflow event (stage updates, final objects, etc.)."""
+    asyncio.run_coroutine_threadsafe(q.put(("event", payload)), loop)
 
 
 def _finish(q, loop):
@@ -80,18 +85,19 @@ def _reload_config():
     domain = os.getenv("APPIAN_DOMAIN", "")
     config.APPIAN_URL     = f"https://{domain}" if domain else ""
     config.APPIAN_API_KEY = os.getenv("APPIAN_API_KEY", "")
+    config.ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 
 # ---- Pydantic models ----
-class GenerateRequest(BaseModel):
-    app_uuid: str
+class WorkflowRequest(BaseModel):
     requirement: str
+    app_uuid: str = ""          # optional — skip export if blank
 
 
-class DeployRequest(BaseModel):
-    app_uuid: str
-    patches_yaml: str
-    deploy_name: str = "Claude-generated deployment"
+class DeployObjectsRequest(BaseModel):
+    objects: list               # list of {type, name, filename, content, ...}
+    deploy_name: str = "AI-generated deployment"
+    app_uuid: str = ""
 
 
 # ---- Routes ----
@@ -105,8 +111,9 @@ def index():
 def api_status():
     _reload_config()
     return {
-        "appian_ok": bool(config.APPIAN_URL and config.APPIAN_API_KEY),
-        "url":       config.APPIAN_URL or "",
+        "appian_ok":    bool(config.APPIAN_URL and config.APPIAN_API_KEY),
+        "anthropic_ok": bool(config.ANTHROPIC_API_KEY),
+        "url":          config.APPIAN_URL or "",
     }
 
 
@@ -114,7 +121,7 @@ def api_status():
 def api_list_apps():
     _reload_config()
     if not (config.APPIAN_URL and config.APPIAN_API_KEY):
-        raise HTTPException(400, "Appian credentials not configured. Edit scripts/.env and restart the server.")
+        raise HTTPException(400, "Appian credentials not configured.")
     try:
         client = AppianClient(config.APPIAN_URL, config.APPIAN_API_KEY)
         apps = client.list_applications()
@@ -123,31 +130,45 @@ def api_list_apps():
         raise HTTPException(502, f"Could not connect to Appian: {e}")
 
 
-@app.post("/api/generate")
-async def api_generate(req: GenerateRequest):
+@app.post("/api/workflow")
+async def api_workflow(req: WorkflowRequest):
+    """
+    Start the multi-agent workflow (Designer → Developer → Verify → Test).
+    Returns a job_id; stream progress via /api/jobs/{job_id}/stream.
+    """
     _reload_config()
+    if not config.ANTHROPIC_API_KEY:
+        raise HTTPException(400, "ANTHROPIC_API_KEY not configured in scripts/.env")
+
     job_id = str(uuid.uuid4())
     q: asyncio.Queue = asyncio.Queue()
     _jobs[job_id] = {"queue": q, "done": False, "result": None, "error": None}
     loop = asyncio.get_running_loop()
     threading.Thread(
-        target=_bg_generate,
-        args=(job_id, req.app_uuid, req.requirement, loop),
+        target=_bg_workflow,
+        args=(job_id, req.requirement, req.app_uuid, loop),
         daemon=True,
     ).start()
     return {"job_id": job_id}
 
 
-@app.post("/api/deploy")
-async def api_deploy(req: DeployRequest):
+@app.post("/api/deploy-objects")
+async def api_deploy_objects(req: DeployObjectsRequest):
+    """
+    Deploy only the specific objects produced by the multi-agent workflow.
+    Creates a minimal Appian package containing just those objects.
+    """
     _reload_config()
+    if not (config.APPIAN_URL and config.APPIAN_API_KEY):
+        raise HTTPException(400, "Appian credentials not configured.")
+
     job_id = str(uuid.uuid4())
     q: asyncio.Queue = asyncio.Queue()
     _jobs[job_id] = {"queue": q, "done": False, "result": None, "error": None}
     loop = asyncio.get_running_loop()
     threading.Thread(
-        target=_bg_deploy,
-        args=(job_id, req.app_uuid, req.patches_yaml, req.deploy_name, loop),
+        target=_bg_deploy_objects,
+        args=(job_id, req.objects, req.deploy_name, loop),
         daemon=True,
     ).start()
     return {"job_id": job_id}
@@ -162,8 +183,8 @@ async def api_stream(job_id: str):
         q = _jobs[job_id]["queue"]
         while True:
             try:
-                msg = await asyncio.wait_for(q.get(), timeout=30)
-                if msg is None:
+                item = await asyncio.wait_for(q.get(), timeout=30)
+                if item is None:
                     job = _jobs[job_id]
                     payload = json.dumps({
                         "type":   "done",
@@ -172,7 +193,11 @@ async def api_stream(job_id: str):
                     })
                     yield f"data: {payload}\n\n"
                     break
-                yield f"data: {json.dumps({'type': 'log', 'msg': msg})}\n\n"
+                kind, data = item
+                if kind == "log":
+                    yield f"data: {json.dumps({'type': 'log', 'msg': data})}\n\n"
+                elif kind == "event":
+                    yield f"data: {json.dumps({'type': 'workflow_event', **data})}\n\n"
             except asyncio.TimeoutError:
                 yield f"data: {json.dumps({'type': 'ping'})}\n\n"
 
@@ -185,140 +210,173 @@ async def api_stream(job_id: str):
 
 # ---- Background workers ----
 
-def _bg_generate(job_id: str, app_uuid: str, requirement: str, loop: asyncio.AbstractEventLoop):
+def _bg_workflow(
+    job_id: str,
+    requirement: str,
+    app_uuid: str,
+    loop: asyncio.AbstractEventLoop,
+):
+    """
+    Runs the full multi-agent workflow:
+      1. (Optional) export Appian app to gather existing object context
+      2. Designer Agent  — design spec
+      3. Developer Agent — implement objects
+      4. Designer Agent  — verify implementation
+      5. Tester Agent    — unit tests + deployment readiness
+    Only new / modified objects land in the final result.
+    """
     job = _jobs[job_id]
     q   = job["queue"]
     cap = _LogCapture(q, loop)
 
     try:
-        os.makedirs(config.EXPORT_DIR,   exist_ok=True)
-        os.makedirs(config.MODIFIED_DIR, exist_ok=True)
+        existing_objects: dict = {}
+        existing_content: dict = {}
 
-        # STEP 1 — Export
-        _log(q, loop, "── STEP 1: Exporting application ──────────────────────")
-        client = AppianClient(config.APPIAN_URL, config.APPIAN_API_KEY)
-        with redirect_stdout(cap), redirect_stderr(cap):
-            extract_dir = export_application(client, app_uuid)
+        # ── Step 1: export (optional) ────────────────────────────────────────
+        if app_uuid and config.APPIAN_URL and config.APPIAN_API_KEY:
+            _log(q, loop, "── Exporting application for context ──────────────────")
+            try:
+                client = AppianClient(config.APPIAN_URL, config.APPIAN_API_KEY)
+                with redirect_stdout(cap), redirect_stderr(cap):
+                    extract_dir = export_application(client, app_uuid)
 
-        # STEP 2 — Read files
-        _log(q, loop, "\n── STEP 2: Reading exported objects ───────────────────")
-        file_contents: dict[str, str] = {}
-        for root, _, files in os.walk(extract_dir):
-            for fname in files:
-                full = os.path.join(root, fname)
-                rel  = os.path.relpath(full, extract_dir).replace("\\", "/")
-                try:
-                    with open(full, encoding="utf-8", errors="ignore") as f:
-                        file_contents[rel] = f.read()
-                except OSError:
-                    pass
-        _log(q, loop, f"  {len(file_contents)} file(s) loaded")
+                # Categorise objects by type
+                for root, _, files in os.walk(extract_dir):
+                    for fname in files:
+                        full = os.path.join(root, fname)
+                        rel  = os.path.relpath(full, extract_dir).replace("\\", "/")
+                        parts = rel.split("/")
+                        obj_type = parts[0] if len(parts) == 1 else parts[0]
+                        existing_objects.setdefault(obj_type, []).append(rel)
 
-        # Build Claude context (cap at ~80 k chars to stay well within token limit)
-        files_ctx = ""
-        total = 0
-        for path, content in file_contents.items():
-            snippet = content[:2500] + "\n[...truncated]" if len(content) > 2500 else content
-            entry   = f"\n=== {path} ===\n{snippet}\n"
-            if total + len(entry) > 80_000:
-                break
-            files_ctx += entry
-            total += len(entry)
+                # Read content (capped at ~80 k chars total)
+                total = 0
+                for root, _, files in os.walk(extract_dir):
+                    for fname in files:
+                        if total > 80_000:
+                            break
+                        full = os.path.join(root, fname)
+                        rel  = os.path.relpath(full, extract_dir).replace("\\", "/")
+                        try:
+                            with open(full, encoding="utf-8", errors="ignore") as f:
+                                body = f.read()
+                            snippet = body[:2500] if len(body) > 2500 else body
+                            existing_content[rel] = snippet
+                            total += len(snippet)
+                        except OSError:
+                            pass
 
-        # STEP 3 — Generate patches template
-        _log(q, loop, "\n── STEP 3: Generating patches template ────────────────")
-        file_list = "\n".join(f"  - {p}" for p in file_contents)
-        patches_yaml = (
-            f"# Requirement: {requirement}\n"
-            f"#\n"
-            f"# Exported files:\n"
-            f"{file_list}\n"
-            f"#\n"
-            f"# Edit the patches below. Each patch targets one file.\n"
-            f"# Use 'changes' for text replacement or 'xpath' for element value.\n"
-            f"\n"
-            f"patches:\n"
-            f"  - file: \"path/to/file.xml\"\n"
-            f"    changes:\n"
-            f"      - find: \"exact text to find\"\n"
-            f"        replace: \"replacement text\"\n"
-            f"  # - file: \"path/to/file.xml\"\n"
-            f"  #   xpath: \".//elementName\"\n"
-            f"  #   new_value: \"new value\"\n"
+                _log(q, loop,
+                     f"  Loaded {sum(len(v) for v in existing_objects.values())} existing object(s)")
+            except Exception as exc:
+                _log(q, loop, f"  Export skipped (not critical): {exc}")
+        else:
+            _log(q, loop, "── No Appian connection — running without existing object context ──")
+
+        # ── Steps 2-5: multi-agent workflow ──────────────────────────────────
+        _log(q, loop, "\n── Starting Multi-Agent AI Workflow ───────────────────")
+
+        def on_agent_event(ev: dict):
+            # Forward structured event to SSE queue
+            _event(q, loop, ev)
+            # Also write a human-readable log line
+            status_icon = {"start": "⏳", "running": "⏳", "done": "✓", "error": "✗"}.get(
+                ev.get("status", ""), "·"
+            )
+            _log(q, loop, f"  [{ev.get('stage','').upper()}] {status_icon} {ev.get('message','')}")
+
+        orchestrator = MultiAgentOrchestrator(config.ANTHROPIC_API_KEY)
+        workflow_result = orchestrator.run_workflow(
+            requirement=requirement,
+            existing_objects=existing_objects,
+            existing_objects_content=existing_content,
+            on_event=on_agent_event,
         )
-        _log(q, loop, "  Template ready — edit patches before deploying ✓")
 
-        job["result"] = {
-            "patches_yaml": patches_yaml,
-            "file_count":   len(file_contents),
-            "extract_dir":  extract_dir,
-        }
-        job["done"] = True
+        new_count  = len(workflow_result.get("new_objects", []))
+        mod_count  = len(workflow_result.get("modified_objects", []))
+        ready      = workflow_result.get("ready_for_deployment", False)
+        test_sum   = workflow_result.get("test_summary", {})
+
+        _log(q, loop, "\n" + "═" * 54)
+        _log(q, loop, f"✓  Workflow complete — {new_count} new, {mod_count} modified object(s)")
+        _log(q, loop, f"   Tests: {test_sum.get('passed',0)}/{test_sum.get('total_tests',0)} passed")
+        _log(q, loop, f"   {'Ready for deployment ✓' if ready else 'Review issues before deploying ✗'}")
+
+        job["result"] = workflow_result
+        job["done"]   = True
 
     except Exception as e:
         job["error"] = str(e)
         job["done"]  = True
-        _log(q, loop, f"\nERROR: {e}")
+        _log(q, loop, f"\nERROR: {e}\n{traceback.format_exc()}")
     finally:
         _finish(q, loop)
 
 
-def _bg_deploy(
+def _bg_deploy_objects(
     job_id: str,
-    app_uuid: str,
-    patches_yaml_str: str,
+    objects: list,
     deploy_name: str,
     loop: asyncio.AbstractEventLoop,
 ):
+    """
+    Package and deploy only the supplied objects (new/modified) to Appian.
+    Creates a minimal ZIP containing only those files + a package manifest.
+    """
     job = _jobs[job_id]
     q   = job["queue"]
     cap = _LogCapture(q, loop)
 
     try:
-        os.makedirs(config.EXPORT_DIR,   exist_ok=True)
-        os.makedirs(config.MODIFIED_DIR, exist_ok=True)
+        _log(q, loop, f"── Packaging {len(objects)} object(s) ─────────────────────")
 
-        client = AppianClient(config.APPIAN_URL, config.APPIAN_API_KEY)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Write each object to its path inside the temp dir
+            for obj in objects:
+                filename = obj.get("filename") or f"{obj.get('type','Objects')}/{obj.get('name','obj')}.xml"
+                dest = os.path.join(tmpdir, filename)
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                content = obj.get("content") or obj.get("modified_content", "")
+                with open(dest, "w", encoding="utf-8") as f:
+                    f.write(content)
+                _log(q, loop, f"  ✓ {filename}")
 
-        # STEP 1 — Export
-        _log(q, loop, "── STEP 1: Exporting application ──────────────────────")
-        with redirect_stdout(cap), redirect_stderr(cap):
-            extract_dir = export_application(client, app_uuid)
+            # Build ZIP in memory
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for root, _, files in os.walk(tmpdir):
+                    for fname in files:
+                        full = os.path.join(root, fname)
+                        arcname = os.path.relpath(full, tmpdir).replace("\\", "/")
+                        zf.write(full, arcname)
+            pkg_bytes = buf.getvalue()
+            _log(q, loop, f"  Package size: {len(pkg_bytes):,} bytes")
 
-        # STEP 2 — Apply patches
-        _log(q, loop, "\n── STEP 2: Applying patches ───────────────────────────")
-        parsed = yaml.safe_load(patches_yaml_str)
-        patches = parsed.get("patches", []) if parsed else []
-        _log(q, loop, f"  {len(patches)} patch(es) to apply")
-        with redirect_stdout(cap), redirect_stderr(cap):
-            modified_dir = apply_patches(extract_dir, patches)
+            # Deploy
+            client = AppianClient(config.APPIAN_URL, config.APPIAN_API_KEY)
 
-        # STEP 3 — Package
-        _log(q, loop, "\n── STEP 3: Packaging ──────────────────────────────────")
-        with redirect_stdout(cap), redirect_stderr(cap):
-            pkg = package_modified(modified_dir)
+            if not config.SKIP_INSPECT:
+                _log(q, loop, "\n── Inspecting package ─────────────────────────────────")
+                with redirect_stdout(cap), redirect_stderr(cap):
+                    insp = inspect_before_deploy(client, pkg_bytes)
+                if insp.get("status") == "FAILED":
+                    raise RuntimeError("Pre-deployment inspection failed.")
 
-        # STEP 4 — Inspect (optional)
-        if not config.SKIP_INSPECT:
-            _log(q, loop, "\n── STEP 4: Inspecting ─────────────────────────────────")
+            _log(q, loop, f"\n── Deploying → {config.APPIAN_URL} ─────────────────────")
             with redirect_stdout(cap), redirect_stderr(cap):
-                insp = inspect_before_deploy(client, pkg)
-            if insp.get("status") == "FAILED":
-                raise RuntimeError("Pre-deployment inspection failed — deployment aborted.")
+                result = do_deploy(client, pkg_bytes, deploy_name, "Deployed via Appian Dev Studio")
 
-        # STEP 5 — Deploy
-        _log(q, loop, f"\n── STEP 5: Deploying → {config.APPIAN_URL} ─────────────")
-        with redirect_stdout(cap), redirect_stderr(cap):
-            result = do_deploy(client, pkg, deploy_name, "Deployed via Appian Dev Studio")
+            ok  = result.get("status") == "COMPLETED"
+            uid = result.get("uuid", "N/A")
+            _log(q, loop, "\n" + "═" * 54)
+            _log(q, loop, "✓  DEPLOYMENT SUCCESSFUL" if ok else
+                 f"✗  DEPLOYMENT FAILED — {result.get('problemMessage', '')}")
+            _log(q, loop, f"   UUID: {uid}")
 
-        ok  = result.get("status") == "COMPLETED"
-        uid = result.get("uuid", "N/A")
-        _log(q, loop, "\n" + "═" * 54)
-        _log(q, loop, "✓  DEPLOYMENT SUCCESSFUL" if ok else f"✗  DEPLOYMENT FAILED  {result.get('problemMessage','')}")
-        _log(q, loop, f"   UUID: {uid}")
-
-        job["result"] = {"ok": ok, "status": result.get("status"), "uuid": uid}
-        job["done"]   = True
+            job["result"] = {"ok": ok, "status": result.get("status"), "uuid": uid}
+            job["done"]   = True
 
     except Exception as e:
         job["error"] = str(e)
